@@ -1,0 +1,104 @@
+{
+  "logistic_regression": {
+    "model_name": "Logistic Regression",
+    "accuracy": 0.98170412963931,
+    "precision": 0.9791437980241493,
+    "recall": 0.9823788546255506,
+    "f1_score": 0.9807586586036283,
+    "confusion_matrix": {
+      "true_negative": 986,
+      "false_positive": 19,
+      "false_negative": 16,
+      "true_positive": 892
+    },
+    "top_features": [
+      {
+        "feature": "koi_fpflag_co",
+        "importance": 1.0
+      },
+      {
+        "feature": "koi_fpflag_nt",
+        "importance": 0.9726409361320185
+      },
+      {
+        "feature": "koi_fpflag_ss",
+        "importance": 0.8956253081268944
+      },
+      {
+        "feature": "koi_fpflag_ec",
+        "importance": 0.851089389756175
+      },
+      {
+        "feature": "koi_duration",
+        "importance": 0.008577695914121308
+      },
+      {
+        "feature": "dec",
+        "importance": 0.0018848084646338919
+      },
+      {
+        "feature": "ra",
+        "importance": 0.0015539189315268368
+      },
+      {
+        "feature": "koi_time0bk",
+        "importance": 0.00021087063606575873
+      },
+      {
+        "feature": "koi_period",
+        "importance": 2.910616789117533e-05
+      }
+    ]
+  },
+  "random_forest": {
+    "model_name": "Random Forest",
+    "accuracy": 0.9822268687924726,
+    "precision": 0.9791666666666666,
+    "recall": 0.9834801762114538,
+    "f1_score": 0.9813186813186813,
+    "confusion_matrix": {
+      "true_negative": 986,
+      "false_positive": 19,
+      "false_negative": 15,
+      "true_positive": 893
+    },
+    "top_features": [
+      {
+        "feature": "koi_fpflag_ss",
+        "importance": 0.2908452432319097
+      },
+      {
+        "feature": "koi_fpflag_nt",
+        "importance": 0.2862088224565091
+      },
+      {
+        "feature": "koi_fpflag_co",
+        "importance": 0.20195945919375044
+      },
+      {
+        "feature": "koi_fpflag_ec",
+        "importance": 0.06823307605012577
+      },
+      {
+        "feature": "koi_period",
+        "importance": 0.05878625577570835
+      },
+      {
+        "feature": "koi_duration",
+        "importance": 0.030119356490863076
+      },
+      {
+        "feature": "koi_time0bk",
+        "importance": 0.028912525487297076
+      },
+      {
+        "feature": "ra",
+        "importance": 0.018159304082638855
+      },
+      {
+        "feature": "dec",
+        "importance": 0.01677595723119779
+      }
+    ]
+  }
+}
