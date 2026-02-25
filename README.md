@@ -201,10 +201,10 @@ User Input → Pipeline 1: Physical Feature Analysis
 
 | Metric    | Random Forest | Logistic Regression |
 |-----------|---------------|---------------------|
-| Accuracy  | 99.22%        | 88%                 |
-| Precision | 0.91          | 0.85                |
-| Recall    | 0.89          | 0.80                |
-| F1 Score  | 0.90          | 0.82                |
+| Accuracy  | 99.22%        | 98.17%              |
+| Precision | 0.9792        | 0.97                |
+| Recall    | 0.98          | 0.98                |
+| F1 Score  | 0.98          | 0.98                |
 
 ---
 
@@ -235,9 +235,6 @@ This project demonstrates:
 
 This is an academic project, but suggestions and improvements are welcome!
 
-## 📄 License
-
-MIT License — See LICENSE file for details.
 
 ## 👨‍💻 Author
 
