@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
+import { motion, useInView } from 'framer-motion'
 import {
   LineChart,
   Line,
@@ -12,7 +13,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   ResponsiveContainer,
 } from 'recharts'
 
@@ -52,23 +52,56 @@ interface AnalyticsData {
 }
 
 // ============================================================================
+// ANIMATED COUNTER
+// ============================================================================
+function AnimatedCounter({ value, suffix = '' }: { value: number; suffix?: string }) {
+  const [count, setCount] = useState(0)
+  const ref = useRef(null)
+  const isInView = useInView(ref, { once: true })
+
+  useEffect(() => {
+    if (!isInView) return
+    let start = 0
+    const increment = value / (1800 / 16)
+    const timer = setInterval(() => {
+      start += increment
+      if (start >= value) {
+        setCount(value)
+        clearInterval(timer)
+      } else {
+        setCount(Math.floor(start))
+      }
+    }, 16)
+    return () => clearInterval(timer)
+  }, [value, isInView])
+
+  return (
+    <span ref={ref} className="tabular-nums">
+      {count.toLocaleString()}{suffix}
+    </span>
+  )
+}
+
+// ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 
+const fadeIn = {
+  hidden: { opacity: 0, y: 20 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' as const } },
+}
+
 const AnalyticsView: React.FC = () => {
-  // State for real analytics data from backend
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const sectionRef = useRef(null)
 
-  // Fetch real analytics data from backend on component mount
   useEffect(() => {
     const fetchAnalytics = async () => {
       try {
         const response = await fetch('http://127.0.0.1:8000/analytics')
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`)
-        }
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
         const data: AnalyticsData = await response.json()
         setAnalyticsData(data)
         setIsLoading(false)
@@ -78,16 +111,15 @@ const AnalyticsView: React.FC = () => {
         setIsLoading(false)
       }
     }
-
     fetchAnalytics()
   }, [])
 
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       return (
-        <div className="bg-input border border-border rounded-lg p-3 text-foreground text-sm">
-          <p className="font-light">{payload[0].name}</p>
-          <p className="text-accent">{payload[0].value}</p>
+        <div className="glass-panel-strong px-4 py-3 text-sm">
+          <p className="text-foreground/70 text-xs">{payload[0].name}</p>
+          <p className="text-cyan-400 font-semibold">{payload[0].value}</p>
         </div>
       )
     }
@@ -97,18 +129,16 @@ const AnalyticsView: React.FC = () => {
   // Loading state
   if (isLoading) {
     return (
-      <section id="analytics" className="py-20 px-6 relative z-10 min-h-screen">
+      <section id="analytics" className="py-24 px-6 relative z-10 min-h-screen section-glow">
         <div className="max-w-7xl mx-auto">
-          <div className="mb-12 space-y-2">
-            <h2 className="text-4xl md:text-5xl font-light text-foreground">
+          <div className="mb-12 space-y-3">
+            <h2 className="text-4xl md:text-5xl font-bold text-foreground tracking-tight">
               Visual Analytics
             </h2>
-            <p className="text-lg text-foreground/60 font-light">
-              Loading real data from Kepler dataset...
-            </p>
+            <p className="text-lg text-foreground/50">Loading real data from Kepler dataset...</p>
           </div>
           <div className="flex items-center justify-center py-20">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent"></div>
+            <div className="w-12 h-12 border-2 border-cyan-400/30 border-t-cyan-400 rounded-full animate-spin" />
           </div>
         </div>
       </section>
@@ -118,15 +148,15 @@ const AnalyticsView: React.FC = () => {
   // Error state
   if (error || !analyticsData) {
     return (
-      <section id="analytics" className="py-20 px-6 relative z-10 min-h-screen">
+      <section id="analytics" className="py-24 px-6 relative z-10 min-h-screen">
         <div className="max-w-7xl mx-auto">
-          <div className="mb-12 space-y-2">
-            <h2 className="text-4xl md:text-5xl font-light text-foreground">
+          <div className="mb-12 space-y-3">
+            <h2 className="text-4xl md:text-5xl font-bold text-foreground tracking-tight">
               Visual Analytics
             </h2>
           </div>
-          <div className="p-6 bg-destructive/10 border border-destructive/20 rounded-xl">
-            <p className="text-destructive">{error}</p>
+          <div className="glass-panel p-6 border-red-500/20">
+            <p className="text-red-400">{error}</p>
           </div>
         </div>
       </section>
@@ -134,119 +164,115 @@ const AnalyticsView: React.FC = () => {
   }
 
   return (
-    <section id="analytics" className="py-20 px-6 relative z-10 min-h-screen">
+    <section id="analytics" className="py-24 px-6 relative z-10 min-h-screen section-glow" ref={sectionRef}>
       <div className="max-w-7xl mx-auto">
-        <div className="mb-12 space-y-2">
-          <h2 className="text-4xl md:text-5xl font-light text-foreground">
+        {/* Section Header */}
+        <motion.div
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, margin: '-50px' }}
+          variants={fadeIn}
+          className="mb-14 space-y-3"
+        >
+          <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-purple-400/20 bg-purple-400/5 text-purple-400 text-xs font-medium tracking-wider uppercase">
+            Real NASA Data
+          </span>
+          <h2 className="text-4xl md:text-5xl font-bold text-foreground tracking-tight">
             Visual Analytics
           </h2>
-          <p className="text-lg text-foreground/60 font-light">
+          <p className="text-lg text-foreground/50 font-light">
             Real insights from NASA Kepler dataset ({analyticsData.statistics.confirmed_exoplanets} confirmed exoplanets)
           </p>
-        </div>
+        </motion.div>
 
-        <div className="grid lg:grid-cols-2 gap-8">
-          {/* Discovery Timeline - Real Data */}
-          <div className="bg-card rounded-2xl border border-border p-8 backdrop-blur-md">
-            <h3 className="text-xl font-light text-foreground mb-6">
+        {/* Charts Grid */}
+        <motion.div
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, margin: '-50px' }}
+          variants={{ visible: { transition: { staggerChildren: 0.12 } } }}
+          className="grid lg:grid-cols-2 gap-6"
+        >
+          {/* Discovery Timeline */}
+          <motion.div variants={fadeIn} className="glass-panel p-8">
+            <h3 className="text-lg font-semibold text-foreground mb-6 tracking-tight">
               Discovery Timeline
             </h3>
             <ResponsiveContainer width="100%" height={300}>
               <LineChart data={analyticsData.discovery_timeline}>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="rgba(255,255,255,0.1)"
-                />
-                <XAxis
-                  dataKey="year"
-                  stroke="rgba(255,255,255,0.5)"
-                  style={{ fontSize: '12px' }}
-                />
-                <YAxis
-                  stroke="rgba(255,255,255,0.5)"
-                  style={{ fontSize: '12px' }}
-                />
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                <XAxis dataKey="year" stroke="rgba(255,255,255,0.3)" style={{ fontSize: '11px' }} />
+                <YAxis stroke="rgba(255,255,255,0.3)" style={{ fontSize: '11px' }} />
                 <Tooltip content={<CustomTooltip />} />
                 <Line
                   type="monotone"
                   dataKey="count"
-                  stroke="hsl(200, 100%, 70%)"
-                  strokeWidth={2}
-                  dot={{ fill: 'hsl(200, 100%, 70%)', r: 4 }}
-                  activeDot={{ r: 6 }}
+                  stroke="#67e8f9"
+                  strokeWidth={2.5}
+                  dot={{ fill: '#67e8f9', r: 3, strokeWidth: 0 }}
+                  activeDot={{ r: 6, fill: '#67e8f9', stroke: '#0e7490', strokeWidth: 2 }}
                 />
               </LineChart>
             </ResponsiveContainer>
-          </div>
+          </motion.div>
 
-          {/* Radius Distribution - Real Data */}
-          <div className="bg-card rounded-2xl border border-border p-8 backdrop-blur-md">
-            <h3 className="text-xl font-light text-foreground mb-6">
+          {/* Radius Distribution */}
+          <motion.div variants={fadeIn} className="glass-panel p-8">
+            <h3 className="text-lg font-semibold text-foreground mb-6 tracking-tight">
               Radius Distribution
             </h3>
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={analyticsData.radius_distribution}>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="rgba(255,255,255,0.1)"
-                />
-                <XAxis
-                  dataKey="range"
-                  stroke="rgba(255,255,255,0.5)"
-                  style={{ fontSize: '12px' }}
-                />
-                <YAxis
-                  stroke="rgba(255,255,255,0.5)"
-                  style={{ fontSize: '12px' }}
-                />
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                <XAxis dataKey="range" stroke="rgba(255,255,255,0.3)" style={{ fontSize: '11px' }} />
+                <YAxis stroke="rgba(255,255,255,0.3)" style={{ fontSize: '11px' }} />
                 <Tooltip content={<CustomTooltip />} />
                 <Bar
                   dataKey="count"
-                  fill="hsl(270, 100%, 50%)"
-                  radius={[8, 8, 0, 0]}
+                  fill="url(#purpleGradient)"
+                  radius={[6, 6, 0, 0]}
                 />
+                <defs>
+                  <linearGradient id="purpleGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#a78bfa" stopOpacity={0.9} />
+                    <stop offset="100%" stopColor="#7c3aed" stopOpacity={0.6} />
+                  </linearGradient>
+                </defs>
               </BarChart>
             </ResponsiveContainer>
-          </div>
+          </motion.div>
 
-          {/* Temperature vs Radius Scatter - Real Data */}
-          <div className="lg:col-span-2 bg-card rounded-2xl border border-border p-8 backdrop-blur-md">
-            <h3 className="text-xl font-light text-foreground mb-6">
+          {/* Scatter plot */}
+          <motion.div variants={fadeIn} className="lg:col-span-2 glass-panel p-8">
+            <h3 className="text-lg font-semibold text-foreground mb-6 tracking-tight">
               Stellar Temperature vs Planet Radius
             </h3>
             <ResponsiveContainer width="100%" height={400}>
               <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="rgba(255,255,255,0.1)"
-                />
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
                 <XAxis
                   dataKey="temperature"
                   name="Stellar Temperature (K)"
-                  stroke="rgba(255,255,255,0.5)"
-                  style={{ fontSize: '12px' }}
-                  label={{ value: 'Stellar Temperature (K)', position: 'insideBottom', offset: -10, fill: 'rgba(255,255,255,0.5)' }}
+                  stroke="rgba(255,255,255,0.3)"
+                  style={{ fontSize: '11px' }}
+                  label={{ value: 'Stellar Temperature (K)', position: 'insideBottom', offset: -10, fill: 'rgba(255,255,255,0.4)', fontSize: 12 }}
                 />
                 <YAxis
                   dataKey="radius"
                   name="Planet Radius (R⊕)"
-                  stroke="rgba(255,255,255,0.5)"
-                  style={{ fontSize: '12px' }}
-                  label={{ value: 'Planet Radius (R⊕)', angle: -90, position: 'insideLeft', fill: 'rgba(255,255,255,0.5)' }}
+                  stroke="rgba(255,255,255,0.3)"
+                  style={{ fontSize: '11px' }}
+                  label={{ value: 'Planet Radius (R⊕)', angle: -90, position: 'insideLeft', fill: 'rgba(255,255,255,0.4)', fontSize: 12 }}
                 />
                 <Tooltip
-                  cursor={{ strokeDasharray: '3 3' }}
+                  cursor={{ strokeDasharray: '3 3', stroke: 'rgba(255,255,255,0.1)' }}
                   content={({ active, payload }: any) => {
                     if (active && payload && payload.length) {
                       return (
-                        <div className="bg-input border border-border rounded-lg p-3 text-foreground text-sm">
-                          <p className="font-medium mb-1">{payload[0].payload.name}</p>
-                          <p className="text-accent text-xs">
-                            Temperature: {payload[0].payload.temperature.toFixed(0)}K
-                          </p>
-                          <p className="text-accent text-xs">
-                            Radius: {payload[0].payload.radius.toFixed(2)} R⊕
-                          </p>
+                        <div className="glass-panel-strong px-4 py-3 text-sm">
+                          <p className="font-medium mb-1 text-foreground">{payload[0].payload.name}</p>
+                          <p className="text-cyan-400 text-xs">Temp: {payload[0].payload.temperature.toFixed(0)}K</p>
+                          <p className="text-purple-400 text-xs">Radius: {payload[0].payload.radius.toFixed(2)} R⊕</p>
                         </div>
                       )
                     }
@@ -256,49 +282,55 @@ const AnalyticsView: React.FC = () => {
                 <Scatter
                   name="Confirmed Exoplanets"
                   data={analyticsData.temperature_radius_scatter}
-                  fill="hsl(200, 100%, 70%)"
-                  fillOpacity={0.6}
+                  fill="#67e8f9"
+                  fillOpacity={0.5}
                 />
               </ScatterChart>
             </ResponsiveContainer>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
 
-        {/* Statistics Cards - Real Data */}
-        <div className="grid md:grid-cols-3 gap-6 mt-8">
-          <div className="bg-card rounded-2xl border border-border p-6 backdrop-blur-md">
-            <p className="text-foreground/60 text-sm font-light mb-2">
-              Average Discovery Rate
+        {/* Statistics Cards */}
+        <motion.div
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, margin: '-50px' }}
+          variants={{ visible: { transition: { staggerChildren: 0.1, delayChildren: 0.3 } } }}
+          className="grid md:grid-cols-3 gap-5 mt-8"
+        >
+          <motion.div variants={fadeIn} className="glass-panel p-6 glow-cyan">
+            <p className="text-foreground/50 text-sm mb-2 tracking-wide">Average Discovery Rate</p>
+            <p className="text-3xl font-bold text-gradient-cyan">
+              <AnimatedCounter value={analyticsData.statistics.avg_discovery_rate} /> / year
             </p>
-            <p className="text-3xl font-light text-accent">
-              {analyticsData.statistics.avg_discovery_rate} / year
+          </motion.div>
+          <motion.div variants={fadeIn} className="glass-panel p-6 glow-purple">
+            <p className="text-foreground/50 text-sm mb-2 tracking-wide">Habitable Zone Candidates</p>
+            <p className="text-3xl font-bold text-gradient-cyan">
+              <AnimatedCounter value={analyticsData.statistics.habitable_zone_count} />
             </p>
-          </div>
-          <div className="bg-card rounded-2xl border border-border p-6 backdrop-blur-md">
-            <p className="text-foreground/60 text-sm font-light mb-2">
-              Habitable Zone Candidates
+          </motion.div>
+          <motion.div variants={fadeIn} className="glass-panel p-6 glow-cyan">
+            <p className="text-foreground/50 text-sm mb-2 tracking-wide">Confirmation Rate</p>
+            <p className="text-3xl font-bold text-gradient-cyan">
+              <AnimatedCounter value={analyticsData.statistics.detection_efficiency} suffix="%" />
             </p>
-            <p className="text-3xl font-light text-accent">
-              {analyticsData.statistics.habitable_zone_count}
-            </p>
-          </div>
-          <div className="bg-card rounded-2xl border border-border p-6 backdrop-blur-md">
-            <p className="text-foreground/60 text-sm font-light mb-2">
-              Confirmation Rate
-            </p>
-            <p className="text-3xl font-light text-accent">
-              {analyticsData.statistics.detection_efficiency}%
-            </p>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
 
-        {/* Data Source Attribution */}
-        <div className="mt-8 p-4 bg-input/30 border border-border rounded-xl text-center">
-          <p className="text-xs text-foreground/50">
-            All analytics computed from real NASA Kepler mission data • 
+        {/* Data Source */}
+        <motion.div
+          variants={fadeIn}
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true }}
+          className="mt-8 glass-panel px-6 py-4 text-center"
+        >
+          <p className="text-xs text-foreground/40">
+            All analytics computed from real NASA Kepler mission data •{' '}
             {analyticsData.statistics.total_candidates} total candidates analyzed
           </p>
-        </div>
+        </motion.div>
       </div>
     </section>
   )

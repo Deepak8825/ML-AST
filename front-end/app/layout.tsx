@@ -1,11 +1,16 @@
 import React from "react"
 import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import { Inter, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
+import GalaxyWrapper from '@/components/GalaxyWrapper'
 import './globals.css'
 
-const _geist = Geist({ subsets: ["latin"] });
-const _geistMono = Geist_Mono({ subsets: ["latin"] });
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
+});
+const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-mono" });
 
 export const metadata: Metadata = {
   title: 'Kepler Observatory | Exoplanet Research Platform',
@@ -37,8 +42,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`font-sans antialiased`}>
-        {children}
+      <body className={`${inter.variable} ${geistMono.variable} font-sans antialiased relative min-h-screen overflow-x-hidden`}>
+        <GalaxyWrapper />
+        <div className="relative z-10">
+          {children}
+        </div>
         <Analytics />
       </body>
     </html>

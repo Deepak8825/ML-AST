@@ -5,6 +5,11 @@ import numpy as np
 import pandas as pd
 import json
 import os
+import asyncio
+
+
+from lightcurve_service import generate_lightcurve
+from fastapi.responses import FileResponse, JSONResponse
 
 # Create FastAPI app
 app = FastAPI()
@@ -151,6 +156,44 @@ def compute_analytics():
 # Compute and cache analytics on startup
 CACHED_ANALYTICS = compute_analytics()
 
+# =========================
+# LIGHT CURVE PRE-CACHING
+# =========================
+PRECACHE_TARGETS = [
+    "Kepler-22",
+    "Kepler-10",
+    "Kepler-8",
+    "Kepler-452",
+    "Kepler-186",
+    "Kepler-442",
+    "Kepler-62",
+    "Kepler-69",
+    "Kepler-296",
+    "Kepler-438",
+]
+
+
+async def _preload_lightcurves():
+    """
+    Background task: pre-generate light curve PNGs for popular targets.
+    Runs in a thread pool so it never blocks the event loop.
+    Each target is independent — one failure won't stop the rest.
+    """
+    print(f"[precache] Starting background preload for {len(PRECACHE_TARGETS)} targets...")
+    for target in PRECACHE_TARGETS:
+        try:
+            print(f"[precache] Preloading {target}...")
+            await asyncio.to_thread(generate_lightcurve, target)
+            print(f"[precache] ✓ {target} ready.")
+        except Exception as e:
+            print(f"[precache] ✗ {target} failed: {e}")
+    print("[precache] Preload complete.")
+
+
+@app.on_event("startup")
+async def startup_preload():
+    """Fire-and-forget preload — server is ready immediately."""
+    asyncio.create_task(_preload_lightcurves())
 
 # =========================
 # ROUTES
@@ -183,15 +226,15 @@ def predict(payload: dict):
     The model was trained on NASA Kepler data and saved using joblib.
     
     Pipeline:
-    - Stage 1: Signal Quality Screening (based on false positive flags)
-    - Stage 2: Physical Classification (based on planetary/stellar features)
+    - Pipeline 1: Physical Feature Analysis (based on planetary/stellar features)
+    - Pipeline 2: Signal Reliability Screening (based on false positive flags)
     
     Request Body:
         {"features": {"koi_period": 10.5, "koi_prad": 2.0, ...}}
     
     Response:
-        - stage_1: Signal screening result (PASS/FAIL)
-        - stage_2: ML classification (only if Stage 1 passes)
+        - stage_1: Physical analysis result (classification + confidence)
+        - stage_2: Signal reliability screening result (PASS/FAIL), or null if physical analysis is inconclusive
         - prediction: Final label (EXOPLANET / FALSE_POSITIVE)
         - confidence: Probability score from the Random Forest model
     """
@@ -200,78 +243,28 @@ def predict(payload: dict):
     input_features = payload.get("features", {})
     
     # ===================================================================
-    # STAGE 1: SIGNAL QUALITY SCREENING
-    # ===================================================================
-    # Purpose: Check if the transit signal has characteristics of a false positive
-    # Method: Use ONLY the false positive flags (fpflags) with physical features
-    #         set to median values to isolate the effect of signal quality
-    # ===================================================================
-    
-    stage1_features = {}
-    for col in FEATURE_COLUMNS:
-        if col.startswith("koi_fpflag_"):
-            # Use the fpflag value from user input, fallback to median if not provided
-            stage1_features[col] = float(input_features.get(col, FEATURE_MEDIANS[col]))
-        else:
-            # Set physical features to median values (neutralize their effect)
-            stage1_features[col] = float(FEATURE_MEDIANS[col])
-    
-    # Build feature array in the EXACT order the model was trained on
-    stage1_array = np.array([stage1_features[col] for col in FEATURE_COLUMNS]).reshape(1, -1)
-    
-    # Get class probabilities from Random Forest model
-    # Class 0 = False Positive, Class 1 = Exoplanet
-    stage1_proba = model.predict_proba(stage1_array)[0]
-    false_positive_prob = float(stage1_proba[0])
-    
-    # Determine signal quality based on false positive probability
-    # Threshold: 0.6 - if model thinks >60% chance of false positive, flag as bad signal
-    if false_positive_prob >= 0.6:
-        # Stage 1 FAILED - Signal has false positive characteristics
-        return {
-            "stage_1": {
-                "result": "FAIL",
-                "signal_quality": "Poor Signal Quality",
-                "confidence": false_positive_prob,
-                "explanation": "Signal shows characteristics of false positives (stellar eclipse, centroid offset, etc.)"
-            },
-            "stage_2": None,
-            "prediction": "FALSE_POSITIVE",
-            "label": "False Positive (Bad Signal)",
-            "confidence": false_positive_prob
-        }
-    
-    # Stage 1 PASSED - Signal appears clean
-    stage1_result = {
-        "result": "PASS",
-        "signal_quality": "Clean Signal",
-        "confidence": float(1 - false_positive_prob),
-        "explanation": "Signal passed quality screening - proceeding to physical analysis"
-    }
-    
-    # ===================================================================
-    # STAGE 2: PHYSICAL PLAUSIBILITY CLASSIFICATION
+    # PIPELINE 1: PHYSICAL FEATURE ANALYSIS
     # ===================================================================
     # Purpose: Classify based on physical properties (radius, period, etc.)
-    # Method: Use physical features with fpflags set to 0 (assuming clean signal)
-    # Only runs if Stage 1 passed
+    # Method: Use physical features with fpflags set to 0 to isolate
+    #         the effect of astrophysical parameters
     # ===================================================================
     
-    stage2_features = {}
+    pipeline1_features = {}
     for col in FEATURE_COLUMNS:
         if col.startswith("koi_fpflag_"):
-            # Set all fpflags to 0 (we already verified signal quality in Stage 1)
-            stage2_features[col] = 0.0
+            # Set all fpflags to 0 (neutral — isolate physical features)
+            pipeline1_features[col] = 0.0
         else:
             # Use user-provided physical features, fallback to median if not provided
-            stage2_features[col] = float(input_features.get(col, FEATURE_MEDIANS[col]))
+            pipeline1_features[col] = float(input_features.get(col, FEATURE_MEDIANS[col]))
     
     # Build feature array in the EXACT order the model was trained on
-    stage2_array = np.array([stage2_features[col] for col in FEATURE_COLUMNS]).reshape(1, -1)
+    pipeline1_array = np.array([pipeline1_features[col] for col in FEATURE_COLUMNS]).reshape(1, -1)
     
     # Get class probabilities from Random Forest model
-    stage2_proba = model.predict_proba(stage2_array)[0]
-    exoplanet_prob = float(stage2_proba[1])  # Probability of being an exoplanet
+    pipeline1_proba = model.predict_proba(pipeline1_array)[0]
+    exoplanet_prob = float(pipeline1_proba[1])  # Probability of being an exoplanet
     
     # Classify based on probability thresholds
     # These thresholds are chosen to balance precision and recall
@@ -285,19 +278,81 @@ def predict(payload: dict):
         classification = "FALSE_POSITIVE"
         label = "False Positive"
     
-    stage2_result = {
+    pipeline1_result = {
         "result": classification,
         "label": label,
         "confidence": exoplanet_prob,
         "explanation": f"Random Forest model assigns {exoplanet_prob:.1%} probability of being an exoplanet"
     }
     
+    # If physical analysis yields FALSE_POSITIVE, skip signal screening
+    if classification == "FALSE_POSITIVE":
+        return {
+            "stage_1": pipeline1_result,
+            "stage_2": None,
+            "prediction": classification,
+            "label": label,
+            "confidence": exoplanet_prob
+        }
+    
+    # ===================================================================
+    # PIPELINE 2: SIGNAL RELIABILITY SCREENING
+    # ===================================================================
+    # Purpose: Check if the transit signal has characteristics of a false positive
+    # Method: Use ONLY the false positive flags (fpflags) with physical features
+    #         set to median values to isolate the effect of signal quality
+    # Only runs if Pipeline 1 did not reject the candidate
+    # ===================================================================
+    
+    pipeline2_features = {}
+    for col in FEATURE_COLUMNS:
+        if col.startswith("koi_fpflag_"):
+            # Use the fpflag value from user input, fallback to median if not provided
+            pipeline2_features[col] = float(input_features.get(col, FEATURE_MEDIANS[col]))
+        else:
+            # Set physical features to median values (neutralize their effect)
+            pipeline2_features[col] = float(FEATURE_MEDIANS[col])
+    
+    # Build feature array in the EXACT order the model was trained on
+    pipeline2_array = np.array([pipeline2_features[col] for col in FEATURE_COLUMNS]).reshape(1, -1)
+    
+    # Get class probabilities from Random Forest model
+    # Class 0 = False Positive, Class 1 = Exoplanet
+    pipeline2_proba = model.predict_proba(pipeline2_array)[0]
+    false_positive_prob = float(pipeline2_proba[0])
+    
+    # Determine signal quality based on false positive probability
+    # Threshold: 0.6 - if model thinks >60% chance of false positive, flag as bad signal
+    if false_positive_prob >= 0.6:
+        # Pipeline 2 FAILED - Signal has false positive characteristics
+        pipeline2_result = {
+            "result": "FAIL",
+            "signal_quality": "Poor Signal Quality",
+            "confidence": false_positive_prob,
+            "explanation": "Signal shows characteristics of false positives (stellar eclipse, centroid offset, etc.)"
+        }
+        return {
+            "stage_1": pipeline1_result,
+            "stage_2": pipeline2_result,
+            "prediction": "FALSE_POSITIVE",
+            "label": "False Positive (Bad Signal)",
+            "confidence": false_positive_prob
+        }
+    
+    # Pipeline 2 PASSED - Signal appears clean
+    pipeline2_result = {
+        "result": "PASS",
+        "signal_quality": "Clean Signal",
+        "confidence": float(1 - false_positive_prob),
+        "explanation": "Signal passed reliability screening — classification confirmed"
+    }
+    
     # ===================================================================
     # FINAL RESPONSE
     # ===================================================================
     return {
-        "stage_1": stage1_result,
-        "stage_2": stage2_result,
+        "stage_1": pipeline1_result,
+        "stage_2": pipeline2_result,
         "prediction": classification,
         "label": label,
         "confidence": exoplanet_prob
@@ -416,7 +471,7 @@ def explain_prediction(payload: dict):
     final_prediction = result.get("prediction", "")
     confidence = result.get("confidence", 0)
     
-    # Build explanation text based on the two-stage pipeline logic
+    # Build explanation text based on the two-pipeline classification logic
     explanation_parts = []
     
     # Introduction
@@ -425,50 +480,55 @@ def explain_prediction(payload: dict):
         f"{confidence:.0%} confidence. Let me explain the reasoning."
     )
     
-    # Stage 1 explanation
-    if stage1.get("result") == "FAIL":
+    # Pipeline 1 explanation (Physical Feature Analysis)
+    explanation_parts.append(
+        f"In pipeline one, the model analyzed the physical properties: "
+        f"orbital period of {features.get('koi_period', 'unknown')} days, "
+        f"planet radius of {features.get('koi_prad', 'unknown')} Earth radii, "
+        f"and stellar temperature of {features.get('koi_steff', 'unknown')} Kelvin."
+    )
+    
+    # Explain Pipeline 1 classification decision
+    if stage1.get("result") == "EXOPLANET":
         explanation_parts.append(
-            f"In stage one, the signal quality screening detected characteristics "
-            f"of a false positive. The signal shows patterns consistent with "
-            f"instrumental artifacts, stellar eclipses, or centroid offsets. "
-            f"This indicates the transit signal is not from a genuine planetary transit."
+            f"These physical parameters are highly consistent with confirmed "
+            f"exoplanets in the Kepler dataset. The Random Forest classifier, "
+            f"trained on over 9,000 observations, assigns a {stage1.get('confidence', 0):.0%} "
+            f"probability that this is a genuine exoplanet candidate."
+        )
+    elif stage1.get("result") == "UNCERTAIN":
+        explanation_parts.append(
+            f"The physical parameters show mixed signals. The model is uncertain "
+            f"with a {stage1.get('confidence', 0):.0%} probability. This case requires human expert "
+            f"review or additional observations for confirmation."
         )
     else:
         explanation_parts.append(
-            f"In stage one, the signal passed quality screening with "
-            f"{stage1.get('confidence', 0):.0%} confidence. The transit signal "
-            f"appears clean with no major false positive flags."
+            f"The physical parameters do not match typical exoplanet characteristics. "
+            f"This suggests the signal may be from a background eclipsing binary "
+            f"or other astrophysical false positive."
         )
     
-    # Stage 2 explanation (if reached)
+    # Pipeline 2 explanation (Signal Reliability Screening — if reached)
     if stage2 is not None:
-        explanation_parts.append(
-            f"In stage two, the model analyzed the physical properties: "
-            f"orbital period of {features.get('koi_period', 'unknown')} days, "
-            f"planet radius of {features.get('koi_prad', 'unknown')} Earth radii, "
-            f"and stellar temperature of {features.get('koi_steff', 'unknown')} Kelvin."
-        )
-        
-        # Explain classification decision
-        if final_prediction == "EXOPLANET":
+        if stage2.get("result") == "FAIL":
             explanation_parts.append(
-                f"These physical parameters are highly consistent with confirmed "
-                f"exoplanets in the Kepler dataset. The Random Forest classifier, "
-                f"trained on over 9,000 observations, assigns a {confidence:.0%} "
-                f"probability that this is a genuine exoplanet candidate."
-            )
-        elif final_prediction == "UNCERTAIN":
-            explanation_parts.append(
-                f"The physical parameters show mixed signals. The model is uncertain "
-                f"with a {confidence:.0%} probability. This case requires human expert "
-                f"review or additional observations for confirmation."
+                f"In pipeline two, the signal reliability screening detected characteristics "
+                f"of a false positive. The signal shows patterns consistent with "
+                f"instrumental artifacts, stellar eclipses, or centroid offsets. "
+                f"This indicates the transit signal is not from a genuine planetary transit."
             )
         else:
             explanation_parts.append(
-                f"The physical parameters do not match typical exoplanet characteristics. "
-                f"This suggests the signal may be from a background eclipsing binary "
-                f"or other astrophysical false positive."
+                f"In pipeline two, the signal passed reliability screening with "
+                f"{stage2.get('confidence', 0):.0%} confidence. The transit signal "
+                f"appears clean with no major false positive flags."
             )
+    else:
+        explanation_parts.append(
+            "Pipeline two was skipped because the physical feature analysis "
+            "already classified this candidate as a false positive."
+        )
     
     # Final verdict
     if final_prediction == "EXOPLANET":
@@ -486,3 +546,46 @@ def explain_prediction(payload: dict):
     full_explanation = " ".join(explanation_parts)
     
     return {"explanation": full_explanation}
+
+
+
+@app.get("/lightcurve")
+async def get_lightcurve(target: str):
+    """
+    Fetch and return a Kepler light curve image for the given target.
+
+    Example:
+        GET /lightcurve?target=Kepler-22
+
+    Returns:
+        PNG image file on success.
+
+    Error Codes:
+        400 — Invalid target name
+        404 — No data found for target
+        504 — MAST download timed out
+        500 — Unexpected server error
+    """
+    try:
+        filepath = generate_lightcurve(target)
+        return FileResponse(
+            filepath,
+            media_type="image/png",
+            filename=f"{target.replace(' ', '_')}.png"
+        )
+    except ValueError as e:
+        # Invalid input (bad target format, injection attempt)
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except TimeoutError:
+        return JSONResponse(
+            status_code=504,
+            content={"error": f"Download timed out for '{target}'. Try again later."}
+        )
+    except RuntimeError as e:
+        # No data found or download failure
+        return JSONResponse(status_code=404, content={"error": str(e)})
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Unexpected error: {str(e)}"}
+        )

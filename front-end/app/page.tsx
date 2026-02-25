@@ -1,5 +1,4 @@
 import Navigation from '@/components/navigation'
-import GalaxyCanvas from '@/components/galaxy-canvas'
 import HeroSection from '@/components/hero-section'
 import DataExplorer from '@/components/data-explorer'
 import AnalyticsView from '@/components/analytics-view'
@@ -10,16 +9,17 @@ import ScrollObserver from '@/components/scroll-observer'
 
 export default function Home() {
   return (
-    <main className="bg-background text-foreground">
-      <GalaxyCanvas />
+    <main className="text-foreground">
       <Navigation />
       <ScrollObserver />
       <HeroSection />
-      <DataExplorer />
-      <AnalyticsView />
-      <MLModels />
-      <LivePrediction />
-      <Footer />
+      <div className="relative bg-[#020409]">
+        <DataExplorer />
+        <AnalyticsView />
+        <MLModels />
+        <LivePrediction />
+        <Footer />
+      </div>
     </main>
   )
 }
